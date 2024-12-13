@@ -1,46 +1,71 @@
 // @ts-check
 import { makePgService } from "@dataplan/pg/adaptors/pg";
 import AmberPreset from "postgraphile/presets/amber";
-import { makeV4Preset } from "postgraphile/presets/v4";
-import { makePgSmartTagsFromFilePlugin } from "postgraphile/utils";
-import { PostGraphileConnectionFilterPreset } from "postgraphile-plugin-connection-filter";
-import { PgAggregatesPreset } from "@graphile/pg-aggregates";
-import { PgManyToManyPreset } from "@graphile-contrib/pg-many-to-many";
-// import { PgSimplifyInflectionPreset } from "@graphile/simplify-inflection";
-import PersistedPlugin from "@grafserv/persisted";
-import { PgOmitArchivedPlugin } from "@graphile-contrib/pg-omit-archived";
-import { dirname } from "path";
-import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { sideEffect } from "postgraphile/grafast";
+import { makeWrapPlansPlugin } from "postgraphile/utils";
 
-// For configuration file details, see: https://postgraphile.org/postgraphile/next/config
+export const UserPlugin = makeWrapPlansPlugin((build) => {
+  const { users } = build.input.pgRegistry.pgResources;
 
-const TagsFilePlugin = makePgSmartTagsFromFilePlugin(`${__dirname}/tags.json5`);
+  return {
+    Mutation: {
+      updateUserByRowId: {
+        plan(plan, $source, { $input: { $rowId } }) {
+          const $before = users.find({ id: $rowId }).single();
+
+          const $valueBefore = $before.get("value1");
+          // Uncomment this line and it will have both values, prev and new,
+          // instead of having both values as new.
+          // $valueBefore.hasSideEffects = true;
+
+          const $plan = plan();
+          const $update = $plan.get("result");
+          const $valueAfter = $update.get("value1");
+
+          sideEffect(
+            [$valueBefore, $valueAfter],
+            async ([valueBefore, valueAfter]) => {
+              console.log(`[valueBefore, valueAfter]`, [
+                valueBefore,
+                valueAfter,
+              ]);
+            }
+          );
+
+          return $plan;
+        },
+      },
+    },
+  };
+});
 
 /** @satisfies {GraphileConfig.Preset} */
 const preset = {
   extends: [
     AmberPreset.default ?? AmberPreset,
-    makeV4Preset({
-      /* Enter your V4 options here */
-      graphiql: true,
-      graphiqlRoute: "/",
-    }),
-    PostGraphileConnectionFilterPreset,
-    PgManyToManyPreset,
-    PgAggregatesPreset,
+    // PostGraphileConnectionFilterPreset,
+    // PgManyToManyPreset,
+    // PgAggregatesPreset,
     // PgSimplifyInflectionPreset
   ],
-  plugins: [PersistedPlugin.default, PgOmitArchivedPlugin, TagsFilePlugin],
+  plugins: [
+    UserPlugin,
+    // PersistedPlugin.default,
+    // PgOmitArchivedPlugin,
+    // TagsFilePlugin,
+  ],
   pgServices: [
     makePgService({
       // Database connection string:
-      connectionString: process.env.DATABASE_URL,
+      // connectionString: process.env.DATABASE_URL,
+      // superuserConnectionString: process.env.SUPERUSER_DATABASE_URL ?? process.env.DATABASE_URL,
+      // schemas: process.env.DATABASE_SCHEMAS?.split(",") ?? ["public"],
+      connectionString:
+        "postgresql://postgres:postgres@localhost:5432/reproducible",
       superuserConnectionString:
-        process.env.SUPERUSER_DATABASE_URL ?? process.env.DATABASE_URL,
-      // List of schemas to expose:
+        process.env.SUPERUSER_DATABASE_URL ??
+        "postgresql://postgres:postgres@localhost:5432/reproducible",
       schemas: process.env.DATABASE_SCHEMAS?.split(",") ?? ["public"],
       // Enable LISTEN/NOTIFY:
       pubsub: true,
@@ -49,11 +74,13 @@ const preset = {
   grafserv: {
     port: 5678,
     websockets: true,
-    allowUnpersistedOperation: true,
     watch: true,
   },
   grafast: {
     explain: true,
+  },
+  schema: {
+    defaultBehavior: "-connection",
   },
 };
 
