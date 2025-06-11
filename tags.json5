@@ -11,6 +11,7 @@
      */
     class: {
       // e.g. "schema.table": { tags: { foreignKey: "(attr) references tbl (attr)" } },
+      "public.users": { attribute: { name: { tags:{behavior: '-orderBy'} } } },
     },
   },
 }
